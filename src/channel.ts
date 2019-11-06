@@ -25,15 +25,13 @@ export class Channel extends EventEmitter {
   public channel: ChannelId = 0
   public initiator = false
   public chunked = false
-  public destroyed = false
-  public finalized = false
 
   private _source: Read<Payload> | undefined
   private _dataHeader = 0
   private _opened = false
   private logger: Debug
-  private _sourceEnded = false
-  private _sinkEnded = false
+  private _ended = false
+  private _abort = false
 
   constructor(
     public name: Buffer | string,
@@ -52,7 +50,7 @@ export class Channel extends EventEmitter {
     if (!this._source) {
       const self = this
       this._source = pushable(() => {
-        self._sourceEnded = true
+        self._ended = true
         self.logger.debug('Channel.source ended')
       })
     }
@@ -68,8 +66,8 @@ export class Channel extends EventEmitter {
   }
 
   public destroy(err: Error | null, local: boolean) {
-    if (this.destroyed) return
-    this.destroyed = true
+    if (this._abort) return
+    this._abort = true
 
     this.source.end()
 
@@ -78,8 +76,6 @@ export class Channel extends EventEmitter {
     if (local && this._opened) {
       try {
         this._multiplex.pushToSource(
-          // 6 和 5 是神奇状态，不用枚举读代码害死人
-          // 我猜 6 是表示主端destroy() 5 是对端 destroy()
           (this.channel << 3) |
             (this.initiator ? ChannelDataType.RemoteError : ChannelDataType.LocalError),
           err ? Buffer.from(err.message) : undefined
@@ -97,7 +93,7 @@ export class Channel extends EventEmitter {
       return
     }
     const self = this
-    read(null, function next(endOrError, data) {
+    read(this._abort || null, function next(endOrError, data) {
       self.logger.debug('channel read from upstream %o', { endOrError, data })
       // no more data from upstream to channel
       if (true === endOrError) {
@@ -109,13 +105,13 @@ export class Channel extends EventEmitter {
           (self.channel << 3) |
             (self.initiator ? ChannelDataType.RemoteEnd : ChannelDataType.LocalEnd)
         )
-        self._sinkEnded = true
+        self._ended = true
         return
       }
       // we may need to propagate the error
       if (endOrError) {
         self.logger.error('Upstream errors: %o', { initiator: self.initiator, error: endOrError })
-        self._sinkEnded = true
+        self._ended = true
         return
       }
 
@@ -139,7 +135,7 @@ export class Channel extends EventEmitter {
       }
       // pass-through upstream's data to remote peer
       self._multiplex.pushToSource(self._dataHeader, data)
-      read(self.destroyed || null, next)
+      read(self._abort || null, next)
     })
 
     return undefined
