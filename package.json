@@ -101,7 +101,7 @@
     "pull-stdio": "^1.0.0",
     "replace-in-file": "^4.1.3",
     "rimraf": "^3.0.0",
-    "semantic-release": "^15.13.28",
+    "semantic-release": "^17.2.3",
     "ts-jest": "^24.1.0",
     "ts-node-dev": "^1.0.0-pre.43",
     "tslint": "^5.20.0",
